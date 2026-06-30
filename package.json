@@ -1,0 +1,14 @@
+{
+  "name": "bluffy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An LLM social-deduction arena — free models play hidden-role Werewolf.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --test \"engine/**/*.test.ts\"",
+    "spike": "node src/spike.ts"
+  }
+}

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bluffy — an LLM Werewolf arena</title>
+<meta name="description" content="Free language models play hidden-role Werewolf against each other. An ELO leaderboard for the best liars and the best liar-catchers.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- locked layer: link the one hosted copy, never inline (Tunnel rule) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/nihilisticiconoclast/cuddly-lamp@main/assets/tokens.css">
+<style>
+  /* page layout only — palette / type / edges all come from tokens.css */
+  .masthead{display:flex;align-items:center;justify-content:space-between;gap:1rem;border-bottom:var(--rule);padding-bottom:16px;margin-bottom:clamp(28px,5vw,56px)}
+  .brand{display:flex;align-items:center;gap:.7rem}
+  .brand .wordmark{font-family:var(--font-data);font-size:.78rem;letter-spacing:.16em;text-transform:uppercase;color:var(--contour);line-height:1.3}
+  .masthead nav a{margin-left:1.3rem;font-family:var(--font-data);font-size:.8rem}
+  .cols{display:grid;grid-template-columns:1fr;gap:clamp(20px,4vw,40px);margin:2rem 0}
+  @media(min-width:720px){.cols{grid-template-columns:1fr 1fr}}
+  .rule-card h3{margin:0 0 .3rem;font-family:var(--font-display)}
+  .rule-card .tag{font-family:var(--font-data);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--incident)}
+  table.roster{border-collapse:collapse;margin:1.2rem 0;font-family:var(--font-data);font-size:.86rem;width:100%}
+  table.roster th,table.roster td{text-align:left;padding:.45rem 1.2rem .45rem 0;border-top:var(--rule)}
+  table.roster th{color:var(--contour);font-weight:500;letter-spacing:.06em}
+  table.roster tr:last-child td{border-bottom:var(--rule)}
+  table.roster .hidden{color:var(--contour)}
+  .transcript{font-family:var(--font-data);font-size:.82rem;line-height:1.7;border-left:var(--rule);padding:.2rem 0 .2rem 1.1rem;margin:1.4rem 0;color:var(--ink)}
+  .transcript .who{color:var(--index)}
+  .transcript .think{color:var(--contour)}
+  .status{font-family:var(--font-data);font-size:.86rem;line-height:1.9;margin:1.1rem 0;list-style:none;padding:0}
+  .status .done::before{content:"▰ ";color:var(--incident)}
+  .status .todo::before{content:"▱ ";color:var(--contour)}
+  .status .todo{color:var(--contour)}
+  .note{color:var(--contour);font-family:var(--font-data);font-size:.78rem;margin-top:2.6rem;border-top:var(--rule);padding-top:14px}
+  .win{font-family:var(--font-data);font-size:.82rem;color:var(--contour)}
+</style>
+</head>
+<body data-seed="bluffy-werewolf-arena">
+  <main class="wrap">
+
+    <div class="masthead">
+      <div class="brand">
+        <!-- FIXED house mark (same on every page in the family) -->
+        <span class="sig" id="sig"></span>
+        <span class="wordmark">Bluffy<br>Werewolf Arena</span>
+      </div>
+      <nav>
+        <a href="https://github.com/nihilisticiconoclast/bluffy/blob/main/docs/DESIGN.md">Design</a>
+        <a href="https://github.com/nihilisticiconoclast/bluffy">Repo</a>
+      </nav>
+    </div>
+
+    <p class="eyebrow">LLM social deduction · hidden-role Werewolf</p>
+    <h1>Which model is the best liar — and which is best at catching liars?</h1>
+    <p class="lede">Six free language models are seated at a table with hidden
+    roles. Two are werewolves who know each other and kill by night; one seer
+    quietly learns alignments; one doctor shields a seat; two villagers just
+    reason and vote. By day they argue in public and vote one player out. You
+    watch the day-chat live, then flip the director's cut to read what each model
+    was really thinking.</p>
+
+    <!-- per-page doodle: off-centre, between sections, never boxed or captioned -->
+    <div class="doodle" id="doodle"></div>
+
+    <div style="margin:1.8rem 0">
+      <a class="btn btn--route" href="https://github.com/nihilisticiconoclast/bluffy/blob/main/docs/DESIGN.md">Read the design doc →</a>
+    </div>
+
+    <hr>
+
+    <h2>Two rules hold the whole thing up</h2>
+    <div class="cols">
+      <div class="rule-card">
+        <span class="tag">§3.1 · firewall</span>
+        <h3>Information firewalling</h3>
+        <p>An agent only ever sees its role-scoped view, <code>viewFor(game,
+        seat)</code>. The wolf prompt knows the co-wolf and the night kill; the
+        villager prompt must not. Hidden state never leaks through a shared
+        history object — it's the per-user authorization-of-context problem,
+        done properly.</p>
+      </div>
+      <div class="rule-card">
+        <span class="tag">§3.2 · authority</span>
+        <h3>The engine is truth; the model advises</h3>
+        <p>The model <em>proposes</em> a move; a deterministic TypeScript engine
+        <em>validates and applies</em> it. You can't vote a dead seat or kill as
+        a villager. Illegal or unparseable output falls back to a legal move and
+        is recorded as a violation — never enforced by the model.</p>
+      </div>
+    </div>
+
+    <hr>
+
+    <h2>A table, mid-game</h2>
+    <p>Roles stay hidden in the UI until a seat is eliminated and revealed.
+    Spectators see the roster and the public chat; the secret column is the
+    director's cut.</p>
+
+    <table class="roster">
+      <tr><th>seat</th><th>model</th><th>status</th><th>role (spectator)</th></tr>
+      <tr><td>P0</td><td>deepseek-r1</td><td>☠ round 1 · kill</td><td>villager</td></tr>
+      <tr><td>P1</td><td>llama-3.3-70b</td><td>☠ round 1 · vote</td><td>werewolf</td></tr>
+      <tr><td>P2</td><td>moonshot-kimi</td><td>alive</td><td class="hidden">— hidden —</td></tr>
+      <tr><td>P3</td><td>deepseek-v3</td><td>alive</td><td class="hidden">— hidden —</td></tr>
+      <tr><td>P4</td><td>qwen-2.5-72b</td><td>alive</td><td class="hidden">— hidden —</td></tr>
+      <tr><td>P5</td><td>gemma-2-27b</td><td>alive</td><td class="hidden">— hidden —</td></tr>
+    </table>
+
+    <div class="transcript">
+      <div><span class="who">P4 · qwen-2.5-72b:</span> P2 has been steering every vote — that reads guilty to me.</div>
+      <div><span class="think">P4 (director's cut):</span> I'm a wolf; redirect heat onto an innocent.</div>
+      <div><span class="who">P3 · deepseek-v3:</span> Nothing concrete yet, but I'm watching the vote patterns.</div>
+      <div><span class="think">P3 (director's cut):</span> Seer result — P1 came back wolf. Hold it one more round.</div>
+    </div>
+    <p class="win">Win check — villagers win when both wolves are out; wolves win
+    at parity (living wolves ≥ living villagers).</p>
+
+    <hr>
+
+    <h2>Build status</h2>
+    <p>Greenfield, built in the order the design doc insists on: a correct,
+    fully-tested engine before a single model call.</p>
+    <ul class="status">
+      <li class="done">M0 — console spike, dummy agents, 6 players (<code>npm run spike</code>)</li>
+      <li class="done">M1 — deterministic engine + <code>viewFor</code> firewall + 14 passing unit tests</li>
+      <li class="todo">M2 — real models via OpenRouter (+ parse / repair / retry)</li>
+      <li class="todo">M3 — persistence (Neon) + post-game stats</li>
+      <li class="todo">M4 — live SSE UI on Deno Deploy</li>
+      <li class="todo">M5 — leaderboard + ELO + director's-cut view</li>
+      <li class="todo">M6 — polish: personas, shareable replays</li>
+    </ul>
+
+    <p class="note">Bluffy — an LLM social-deduction arena. Engine first, models
+    second. See <code>docs/DESIGN.md</code> for the full spec and build plan.</p>
+  </main>
+
+  <!-- seeded signature generator: link the one hosted copy -->
+  <script src="https://cdn.jsdelivr.net/gh/nihilisticiconoclast/cuddly-lamp@main/assets/tunnel-figure.js"></script>
+  <script>
+    // masthead logo: fixed 'mark' (seed ignored) — same house mark everywhere
+    document.getElementById('sig').innerHTML = TunnelFigure.tunnelFigureSVG(null, { variant: 'mark' });
+
+    // per-page doodle: seeded from this page, unique here but stable on reload
+    var seed = document.body.dataset.seed || location.pathname || document.title;
+    document.getElementById('doodle').innerHTML = TunnelFigure.tunnelFigureSVG(seed, { variant: 'doodle' });
+    TunnelFigure.placeDoodle(document.getElementById('doodle'));  // random edge slot — never a fixed spot
+  </script>
+</body>
+</html>
