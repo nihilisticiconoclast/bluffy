@@ -77,6 +77,10 @@ for (let s = 0; s < models.length; s++) {
     apiKey,
     backups: BACKUP_MODELS,
     limiter,
+    // Give a seat's own model a few shots at a transient 429 before handing off
+    // to a backup, so games show the assigned models (not just the backup).
+    maxSameModelRetries: 3,
+    retryBackoffMs: 700,
     timeoutMs: 45_000,
     referer: "https://github.com/nihilisticiconoclast/bluffy",
     title: "Bluffy",
