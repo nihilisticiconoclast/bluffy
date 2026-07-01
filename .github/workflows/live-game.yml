@@ -3,11 +3,14 @@ name: Live game
 # Plays one real game with LLM players via OpenRouter, using the repository
 # secret OPENROUTER_API_KEY. Manual trigger so it never runs (or spends quota)
 # on its own.
+#
+# Pass seed=probe to instead run the read-only slug probe (src/probe.ts), which
+# verifies every model slug in agents/models.ts against the live API.
 on:
   workflow_dispatch:
     inputs:
       seed:
-        description: "Game seed (blank = random)"
+        description: "Game seed (blank = random; 'probe' = verify model slugs instead of playing)"
         required: false
         default: ""
 
@@ -19,7 +22,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Verify model slugs (probe)
+        if: ${{ github.event.inputs.seed == 'probe' }}
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node src/probe.ts
       - name: Play a live game
+        if: ${{ github.event.inputs.seed != 'probe' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: node src/live.ts ${{ github.event.inputs.seed }}
