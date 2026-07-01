@@ -1,0 +1,25 @@
+name: Live game
+
+# Plays one real game with LLM players via OpenRouter, using the repository
+# secret OPENROUTER_API_KEY. Manual trigger so it never runs (or spends quota)
+# on its own.
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Game seed (blank = random)"
+        required: false
+        default: ""
+
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Play a live game
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node src/live.ts ${{ github.event.inputs.seed }}

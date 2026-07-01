@@ -8,7 +8,8 @@
     "node": ">=22.6"
   },
   "scripts": {
-    "test": "node --test \"engine/**/*.test.ts\"",
-    "spike": "node src/spike.ts"
+    "test": "node --test \"engine/**/*.test.ts\" \"agents/**/*.test.ts\"",
+    "spike": "node src/spike.ts",
+    "live": "node src/live.ts"
   }
 }

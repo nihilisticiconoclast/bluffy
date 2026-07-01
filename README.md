@@ -29,7 +29,9 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full spec and build plan.
 - [x] **M1** — deterministic engine + `viewFor` firewall + scripted dummy agent + unit tests (no LLM)
 - [x] **M1+** — engine extras done early, all offline: `spectatorView`, role-conditioned
   stats (`lie_success`, `detection_rate`, team ELO), and the Brier spectator-prediction hook
-- [ ] **M2** — real models via OpenRouter (+ parse/repair/retry)
+- [x] **M2** — real models via OpenRouter: firewall-safe prompts, structured-output
+  parse→repair→retry, model failover, safe fallback, per-model rate limiting — all
+  testable offline via an injectable transport
 - [ ] **M3** — persistence (Neon) + post-game stats
 - [ ] **M4** — live SSE UI
 - [ ] **M5** — leaderboard + ELO + director's cut
@@ -58,6 +60,22 @@ The spike prints the live **public** transcript first, then replays the same gam
 as the **director's cut** — the wolf channel, the seer's results, and every seat's
 private reasoning, all of which the firewall keeps out of the live views.
 
+### Live games with real models (M2)
+
+```bash
+OPENROUTER_API_KEY=sk-or-... npm run live      # one real game via OpenRouter
+```
+
+Or run it in CI, where the key already lives as a repo secret: trigger the
+**Live game** GitHub Action (`.github/workflows/live-game.yml`, manual dispatch).
+Without a key, `npm run live` prints instructions and exits cleanly.
+
+Each LLM seat (`agents/llm.ts`) does the full M2 resilience dance: a firewall-safe
+prompt built only from its `SeatView`, then **parse → repair-retry → model
+failover → safe fallback**, gated by a per-model token bucket (§8) and traced for
+observability. The whole stack is tested offline with an injectable mock
+transport — no network, no key (`agents/*.test.ts`).
+
 ## Layout
 
 ```
@@ -75,8 +93,17 @@ bluffy/
 │   ├── predict.ts         Brier spectator wolf-prediction (§9)
 │   └── *.test.ts          unit tests (firewall, illegal actions, win, stats, Brier)
 ├── agents/
-│   └── dummy.ts           scripted, view-only agent for M1 (no LLM)
-├── src/spike.ts           console runner (M0/M1)
+│   ├── dummy.ts           scripted, view-only agent for M1 (no LLM)
+│   ├── prompt.ts          M2: SeatView + request → firewall-safe messages
+│   ├── parse.ts           M2: messy completion → validated Action (§6)
+│   ├── openrouter.ts      M2: transport-injectable OpenRouter client
+│   ├── ratelimit.ts       M2: per-model token bucket (§8)
+│   ├── models.ts          M2: the free-model cast + failover list
+│   └── llm.ts             M2: the LLM agent (parse→repair→failover→fallback)
+├── src/
+│   ├── spike.ts           offline console runner (M0/M1)
+│   └── live.ts            M2: real game via OpenRouter (needs OPENROUTER_API_KEY)
+├── .github/workflows/     CI (offline tests) + manual live-game (uses the secret)
 ├── server/                Deno Deploy: orchestrator + SSE endpoint (M4)
 └── web/index.html         landing page (Tunnel aesthetic, via cuddly-lamp CDN)
 ```
