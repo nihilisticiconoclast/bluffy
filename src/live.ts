@@ -95,3 +95,38 @@ const fellBack = traces.filter((t) => t.fellBack).length;
 console.log(
   `\nrobustness: ${traces.length} model calls · ${repaired} repaired · ${failedOver} failed over · ${fellBack} fell back to a safe move`,
 );
+
+// per-model slug audit — distinguishes a bad/renamed slug (404) from a valid
+// slug that's merely rate-limited (429). Errors are attributed to the exact
+// model that produced them, so a working backup can't mask a broken primary.
+type Tally = { ok: number; status: Record<string, number> };
+const byModel = new Map<string, Tally>();
+const tallyFor = (m: string): Tally => {
+  let t = byModel.get(m);
+  if (!t) {
+    t = { ok: 0, status: {} };
+    byModel.set(m, t);
+  }
+  return t;
+};
+const statusOf = (err: string): string => {
+  const http = /OpenRouter (\d{3})/.exec(err);
+  if (http) return `HTTP ${http[1]}`;
+  if (/timed out/i.test(err)) return "timeout";
+  if (/not JSON|no message content|OpenRouter error/i.test(err)) return "bad-response";
+  return "error";
+};
+for (const t of traces) {
+  if (!t.fellBack) tallyFor(t.model).ok++; // the model that produced the accepted action
+  for (const e of t.modelErrors ?? []) {
+    const tally = tallyFor(e.model);
+    const s = statusOf(e.error);
+    tally.status[s] = (tally.status[s] ?? 0) + 1;
+  }
+}
+console.log("\nper-model slug audit (ok = produced a usable action; the rest are errors seen):");
+for (const [model, t] of byModel) {
+  const errs = Object.entries(t.status).map(([s, n]) => `${n}× ${s}`).join(", ") || "—";
+  console.log(`  ${shortName(model).padEnd(30)} ok:${String(t.ok).padStart(3)}   errors: ${errs}`);
+}
+console.log("reading it: any 'HTTP 404' = a bad/renamed slug to fix; 'HTTP 429' = valid slug, just rate-limited.");

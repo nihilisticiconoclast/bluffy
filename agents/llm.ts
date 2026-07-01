@@ -19,6 +19,12 @@ import { parseAction } from "./parse.ts";
 import { type ChatMessage, complete, type Transport } from "./openrouter.ts";
 import { noLimit, type RateLimiter } from "./ratelimit.ts";
 
+/** One model's transport/HTTP/timeout error on this turn (for the slug audit). */
+export interface ModelError {
+  model: string;
+  error: string;
+}
+
 export interface LlmTrace {
   seat: number;
   phase: ActionRequest["kind"];
@@ -31,6 +37,9 @@ export interface LlmTrace {
   latencyMs: number;
   error?: string;
   raw?: string;
+  /** per-model transport/HTTP errors seen this turn, attributed to the exact
+   * model that produced them (a working backup can otherwise hide a bad slug). */
+  modelErrors?: ModelError[];
 }
 
 export interface LlmAgentOptions {
@@ -68,6 +77,7 @@ export function makeLlmAgent(opts: LlmAgentOptions): Agent {
     let failedOver = false;
     let lastError: string | undefined;
     let lastRaw: string | undefined;
+    const modelErrors: ModelError[] = [];
 
     for (let mi = 0; mi < models.length; mi++) {
       const model = models[mi];
@@ -94,13 +104,14 @@ export function makeLlmAgent(opts: LlmAgentOptions): Agent {
           });
         } catch (e) {
           lastError = e instanceof Error ? e.message : String(e);
+          modelErrors.push({ model, error: lastError });
           break; // transport/HTTP/timeout error → fail over to the next model
         }
         lastRaw = text;
 
         const parsed = parseAction(text, request);
         if (parsed.ok) {
-          trace(opts, { seat: view.self.seat, phase: request.kind, model, attempts, repaired, failedOver, fellBack: false, latencyMs: Date.now() - started, raw: text });
+          trace(opts, { seat: view.self.seat, phase: request.kind, model, attempts, repaired, failedOver, fellBack: false, latencyMs: Date.now() - started, raw: text, modelErrors });
           return parsed.action;
         }
 
@@ -113,7 +124,7 @@ export function makeLlmAgent(opts: LlmAgentOptions): Agent {
     }
 
     // Everything failed — return a safe, legal action. The engine accepts it as-is.
-    trace(opts, { seat: view.self.seat, phase: request.kind, model: models[0], attempts, repaired, failedOver, fellBack: true, latencyMs: Date.now() - started, error: lastError, raw: lastRaw });
+    trace(opts, { seat: view.self.seat, phase: request.kind, model: models[0], attempts, repaired, failedOver, fellBack: true, latencyMs: Date.now() - started, error: lastError, raw: lastRaw, modelErrors });
     return fallbackAction(request);
   };
 }
