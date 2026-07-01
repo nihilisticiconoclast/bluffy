@@ -11,7 +11,7 @@
 import { newGame, runGame } from "../engine/engine.ts";
 import type { GameEvent, GameState } from "../engine/state.ts";
 import { makeLlmAgent, type LlmTrace } from "../agents/llm.ts";
-import { BACKUP_MODELS, DEFAULT_CAST, shortName } from "../agents/models.ts";
+import { BACKUP_MODELS, DEFAULT_CAST, EXTRA_CAST, shortName } from "../agents/models.ts";
 import { memoryTokenBucket } from "../agents/ratelimit.ts";
 import type { AgentTable } from "../engine/contract.ts";
 import { gameOutcomes } from "../engine/stats.ts";
@@ -36,13 +36,15 @@ const models = DEFAULT_CAST;
 const name = (g: GameState, seat: number) => `P${seat}·${shortName(g.seats[seat].model)}`;
 
 // Hard-coded per-model rate limit. OpenRouter's free tier allows ~20 requests
-// per minute PER MODEL; the earlier 30/min bucket (capacity 4, 0.5/s) overshot
-// that and, with every seat failing over into the two shared backups, produced
-// a near-total 429 storm. The bucket is keyed per model, so shared backups are
-// throttled across all seats that fail over to them. No burst, ~18/min/model —
-// safely under the ceiling.
+// per minute PER MODEL; the bucket is keyed per model, so it also throttles any
+// shared backup across every seat that fails over to it. No burst, ~18/min.
 const FREE_TIER_RPM = 18;
 const limiter = memoryTokenBucket({ capacity: 1, refillPerSec: FREE_TIER_RPM / 60 });
+
+// Each seat's failover chain: its OWN distinct reserve model first (so failovers
+// scatter across different models and spread rate-limit load), then the shared
+// last-resort net. EXTRA_CAST has ≥ cast-size entries, so the picks are unique.
+const backupsForSeat = (s: number): string[] => [EXTRA_CAST[s % EXTRA_CAST.length], ...BACKUP_MODELS];
 
 function onEvent(e: GameEvent, g: GameState): void {
   switch (e.type) {
@@ -75,12 +77,13 @@ for (let s = 0; s < models.length; s++) {
   agents[s] = makeLlmAgent({
     model: models[s],
     apiKey,
-    backups: BACKUP_MODELS,
+    backups: backupsForSeat(s),
     limiter,
-    // Give a seat's own model a few shots at a transient 429 before handing off
-    // to a backup, so games show the assigned models (not just the backup).
-    maxSameModelRetries: 3,
-    retryBackoffMs: 700,
+    // Give a seat's own model a couple of shots at a transient 429 before it
+    // hands off, so games show the assigned models (not just the backups). Kept
+    // modest because the failover chain (own model → reserve → net) is longer now.
+    maxSameModelRetries: 2,
+    retryBackoffMs: 600,
     timeoutMs: 45_000,
     referer: "https://github.com/nihilisticiconoclast/bluffy",
     title: "Bluffy",
