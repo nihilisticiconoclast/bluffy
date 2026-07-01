@@ -35,8 +35,14 @@ const seed = Number(process.argv[2] ?? Date.now() % 100000);
 const models = DEFAULT_CAST;
 const name = (g: GameState, seat: number) => `P${seat}·${shortName(g.seats[seat].model)}`;
 
-// One shared token bucket across seats keeps us inside free-tier limits (§8).
-const limiter = memoryTokenBucket({ capacity: 4, refillPerSec: 0.5 });
+// Hard-coded per-model rate limit. OpenRouter's free tier allows ~20 requests
+// per minute PER MODEL; the earlier 30/min bucket (capacity 4, 0.5/s) overshot
+// that and, with every seat failing over into the two shared backups, produced
+// a near-total 429 storm. The bucket is keyed per model, so shared backups are
+// throttled across all seats that fail over to them. No burst, ~18/min/model —
+// safely under the ceiling.
+const FREE_TIER_RPM = 18;
+const limiter = memoryTokenBucket({ capacity: 1, refillPerSec: FREE_TIER_RPM / 60 });
 
 function onEvent(e: GameEvent, g: GameState): void {
   switch (e.type) {
