@@ -5,14 +5,20 @@
  * else references this one list.
  */
 
-/** Default 6-player cast of free models. */
+/** Default 12-player cast of free models. */
 export const DEFAULT_CAST: string[] = [
   "deepseek/deepseek-r1:free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "moonshotai/kimi-k2:free",
-  "deepseek/deepseek-chat:free",
+  "deepseek/deepseek-chat-v3.1:free",
   "qwen/qwen-2.5-72b-instruct:free",
   "google/gemma-2-9b-it:free",
+  "qwen/qwen3-coder:free",
+  "meta-llama/llama-4-scout:free",
+  "google/gemma-3-12b-it:free",
+  "mistralai/mistral-small-3.1-24b-instruct:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "google/gemma-4-31b-it:free",
 ];
 
 /**
