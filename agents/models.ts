@@ -3,41 +3,58 @@
  * "personalities", which is half the entertainment. Slugs use the `:free`
  * variants; update them here if OpenRouter's free line-up shifts — everything
  * else references this one list.
+ *
+ * This roster was rebuilt from a live probe of OpenRouter's /models endpoint
+ * (src/probe.ts, run in CI): the previous hand-picked slugs had almost all
+ * 404'd as the free line-up drifted. These are the currently-available :free
+ * models. EXPERIMENT: the whole field is seated at once to see who actually
+ * performs under live game + rate-limit conditions; the per-model audit printed
+ * by src/live.ts ranks them so we can trim to a permanent cast from real data.
  */
 
-/** Default 6-player cast of free models (the active roster). */
+/** The full live free field (experiment cast — expect rate-limit fallbacks). */
 export const DEFAULT_CAST: string[] = [
-  "deepseek/deepseek-r1:free",
+  "openai/gpt-oss-120b:free",
+  "openai/gpt-oss-20b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "nvidia/nemotron-nano-9b-v2:free",
+  "nvidia/nemotron-nano-12b-v2-vl:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
+  "qwen/qwen3-coder:free",
+  "google/gemma-4-31b-it:free",
+  "google/gemma-4-26b-a4b-it:free",
   "meta-llama/llama-3.3-70b-instruct:free",
-  "moonshotai/kimi-k2:free",
-  "deepseek/deepseek-chat-v3.1:free",
-  "qwen/qwen-2.5-72b-instruct:free",
-  "google/gemma-2-9b-it:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "nousresearch/hermes-3-llama-3.1-405b:free",
+  "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+  "cohere/north-mini-code:free",
+  "poolside/laguna-m.1:free",
+  "poolside/laguna-xs.2:free",
+  "liquid/lfm-2.5-1.2b-instruct:free",
+  "liquid/lfm-2.5-1.2b-thinking:free",
 ];
 
 /**
- * Bench: extra verified free slugs, ready to plug into DEFAULT_CAST when we want
- * a bigger table. Kept out of the default 6 so a single live game stays inside
- * the free-tier request budget (running all 12 at once fell back on ~85% of
- * calls). Two of these — nemotron-3-super and gemma-4-31b — already ran cleanly
- * in a live smoke test.
+ * Live :free models deliberately kept OUT of the seated cast because they
+ * aren't conversational players (moderation classifiers, etc.). Still probed by
+ * src/probe.ts so the exclusion stays on the record.
  */
 export const EXTRA_CAST: string[] = [
-  "qwen/qwen3-coder:free",
-  "meta-llama/llama-4-scout:free",
-  "google/gemma-3-12b-it:free",
-  "mistralai/mistral-small-3.1-24b-instruct:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3.5-content-safety:free",
 ];
 
 /**
  * Backup models tried (in order) when a seat's assigned model errors or times
- * out. Kept broad and reliable so a flaky primary never stalls a game.
+ * out. The two most reliable general models in the live field (gemma-4-31b was
+ * the only slug to return a clean completion in the probe; gpt-oss-20b is small
+ * and fast).
  */
 export const BACKUP_MODELS: string[] = [
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "mistralai/mistral-7b-instruct:free",
+  "google/gemma-4-31b-it:free",
+  "openai/gpt-oss-20b:free",
 ];
 
 /** A short, display-friendly label for a model slug (drops the vendor + :free). */
