@@ -46,8 +46,8 @@ export interface SeatView {
   deaths: { round: number; seat: number; role: Role; cause: "kill" | "vote" }[];
   /** the seer's own accumulated investigations (seer only) */
   seerResults: { round: number; target: number; alignment: Alignment }[];
-  /** the wolves' private kill targets proposed at night (wolves only) */
-  wolfChannel: { round: number; seat: number; target: number }[];
+  /** the wolves' private kill targets negotiated at night (wolves only) */
+  wolfChannel: { round: number; seat: number; target: number; stage?: "propose" | "confirm" }[];
 }
 
 /** Can `seat` see an event with this visibility? The whole firewall, in one fn. */
@@ -101,7 +101,7 @@ function project(view: SeatView, e: GameEvent): void {
       view.seerResults.push({ round: e.round, target: e.target, alignment: e.alignment });
       break;
     case "wolf_target":
-      view.wolfChannel.push({ round: e.round, seat: e.seat, target: e.target });
+      view.wolfChannel.push({ round: e.round, seat: e.seat, target: e.target, stage: e.stage });
       break;
     // phase / no_death / violation / game_over carry no per-seat view payload
   }

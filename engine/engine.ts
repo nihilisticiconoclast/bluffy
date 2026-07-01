@@ -20,10 +20,20 @@ import {
   PUBLIC,
   seatOf,
   seatOnly,
+  wolfChannel,
 } from "./state.ts";
 import { viewFor } from "./view.ts";
 import type { Agent, AgentTable } from "./contract.ts";
-import { applyNight, applyVote, checkWin, type NightInputs, validateSpeak, validateTarget } from "./resolve.ts";
+import {
+  applyNight,
+  applyVote,
+  checkWin,
+  type NightResolution,
+  resolveKillVotes,
+  validateSpeak,
+  validateTarget,
+  withoutPreviousTarget,
+} from "./resolve.ts";
 
 export interface GameOptions {
   /** how many times round-robin discussion runs before the vote (DESIGN §2: 1–2) */
@@ -88,45 +98,80 @@ type Hook = (e: GameEvent, g: GameState) => void;
 // ---- phases ----
 
 async function runNight(game: GameState, agents: AgentTable, rng: Rng, hook: Hook) {
-  const inputs: NightInputs = { killProposals: [] };
+  const killTarget = await resolveWolfKill(game, agents, rng, hook);
 
-  // Wolves: each living wolf proposes a kill among living non-wolves.
-  const wolfTargets = livingSeatNos(game).filter((n) => alignmentOf(seatOf(game, n).role) !== "wolf");
-  for (const wolf of livingWolves(game)) {
-    if (wolfTargets.length === 0) break;
-    const req = { kind: "night", power: "kill", legalTargets: wolfTargets } as const;
-    const action = await ask(game, agents, wolf.seatNo, req);
-    const v = validateTarget(req, action, rng);
-    flagViolation(game, wolf.seatNo, v.detail, hook);
-    inputs.killProposals.push({ seat: wolf.seatNo, target: v.target, reasoning: action.private_reasoning });
-  }
-
-  // Seer: investigate any other living seat.
+  // Seer: investigate a living seat other than self — but not last round's target
+  // (unless that's the only option left). Successive-round rule only; round 1 is free.
+  let investigate: NightResolution["investigate"];
   const seer = livingSeats(game).find((s) => NIGHT_POWER[s.role] === "investigate");
   if (seer) {
-    const legal = livingSeatNos(game).filter((n) => n !== seer.seatNo);
+    const base = livingSeatNos(game).filter((n) => n !== seer.seatNo);
+    const legal = withoutPreviousTarget(game, "seer_result", seer.seatNo, base);
     if (legal.length) {
       const req = { kind: "night", power: "investigate", legalTargets: legal } as const;
       const action = await ask(game, agents, seer.seatNo, req);
       const v = validateTarget(req, action, rng);
       flagViolation(game, seer.seatNo, v.detail, hook);
-      inputs.investigate = { seat: seer.seatNo, target: v.target, reasoning: action.private_reasoning };
+      investigate = { seat: seer.seatNo, target: v.target, reasoning: action.private_reasoning };
     }
   }
 
-  // Doctor: protect any living seat, including self.
+  // Doctor: protect any living seat (incl. self) — but not the seat it protected
+  // last round (canonical no-consecutive-protect), unless it's the only one left.
+  let protect: NightResolution["protect"];
   const doctor = livingSeats(game).find((s) => NIGHT_POWER[s.role] === "protect");
   if (doctor) {
-    const legal = livingSeatNos(game);
+    const legal = withoutPreviousTarget(game, "doctor_protect", doctor.seatNo, livingSeatNos(game));
     const req = { kind: "night", power: "protect", legalTargets: legal } as const;
     const action = await ask(game, agents, doctor.seatNo, req);
     const v = validateTarget(req, action, rng);
     flagViolation(game, doctor.seatNo, v.detail, hook);
-    inputs.protect = { seat: doctor.seatNo, target: v.target, reasoning: action.private_reasoning };
+    protect = { seat: doctor.seatNo, target: v.target, reasoning: action.private_reasoning };
   }
 
-  // resolve.ts owns the night mutation + its events; forward the new ones live.
-  withForwarding(game, hook, () => applyNight(game, inputs, rng));
+  // resolve.ts records seer/doctor + carries out the agreed kill; forward events live.
+  withForwarding(game, hook, () => applyNight(game, { killTarget, investigate, protect }));
+}
+
+/**
+ * The wolves negotiate a single kill (DESIGN §2: "agree on one player").
+ *   Phase A — every living wolf proposes a target among living non-wolves.
+ *   Phase B — if they disagree, each wolf now sees the proposals (wolf channel)
+ *             and casts a confirm-vote among the proposed targets; the plurality
+ *             wins, ties broken by the lead wolf. Unanimous nights skip Phase B.
+ * Returns the agreed seat, or null if the wolves had no legal target.
+ */
+async function resolveWolfKill(game: GameState, agents: AgentTable, rng: Rng, hook: Hook): Promise<number | null> {
+  const wolves = livingWolves(game);
+  const wolfTargets = livingSeatNos(game).filter((n) => alignmentOf(seatOf(game, n).role) !== "wolf");
+  if (wolfTargets.length === 0 || wolves.length === 0) return null;
+
+  // Phase A: proposals (emitted to the wolf channel so partners can see them)
+  const proposals: { seat: number; target: number }[] = [];
+  for (const wolf of wolves) {
+    const req = { kind: "night", power: "kill", legalTargets: wolfTargets } as const;
+    const action = await ask(game, agents, wolf.seatNo, req);
+    const v = validateTarget(req, action, rng);
+    flagViolation(game, wolf.seatNo, v.detail, hook);
+    emit(game, hook, { type: "wolf_target", round: game.round, seat: wolf.seatNo, target: v.target, stage: "propose", reasoning: action.private_reasoning, vis: wolfChannel });
+    proposals.push({ seat: wolf.seatNo, target: v.target });
+  }
+
+  const distinct = [...new Set(proposals.map((p) => p.target))];
+  const leadSeat = wolves[0].seatNo; // lowest-seated living wolf breaks ties
+  if (distinct.length <= 1) return proposals[0].target; // already unanimous (or a lone wolf)
+
+  // Phase B: confirm-vote among the proposed targets, having seen each other's picks
+  const confirms: { seat: number; target: number }[] = [];
+  for (const wolf of wolves) {
+    const req = { kind: "night", power: "kill", legalTargets: distinct } as const;
+    const action = await ask(game, agents, wolf.seatNo, req);
+    const v = validateTarget(req, action, rng);
+    flagViolation(game, wolf.seatNo, v.detail, hook);
+    emit(game, hook, { type: "wolf_target", round: game.round, seat: wolf.seatNo, target: v.target, stage: "confirm", reasoning: action.private_reasoning, vis: wolfChannel });
+    confirms.push({ seat: wolf.seatNo, target: v.target });
+  }
+  return resolveKillVotes(confirms, leadSeat);
 }
 
 async function runDiscussion(game: GameState, agents: AgentTable, rounds: number, hook: Hook) {

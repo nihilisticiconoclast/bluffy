@@ -17,7 +17,6 @@ import {
   seatOf,
   seatOnly,
   type Winner,
-  wolfChannel,
 } from "./state.ts";
 import type { Action, ActionRequest } from "./contract.ts";
 
@@ -73,27 +72,27 @@ export function validateSpeak(action: Action): { text: string; reasoning?: strin
 
 // ---- night resolution ----
 
-export interface NightInputs {
-  /** every wolf's (already-legalised) kill proposal */
-  killProposals: { seat: number; target: number; reasoning?: string }[];
+/**
+ * A fully-resolved night, handed to `applyNight`. The kill has already been
+ * decided by the wolves' consensus (see the orchestrator's negotiate→confirm
+ * flow); the seer/doctor targets are already legalised. The wolf channel events
+ * are emitted by the orchestrator as the negotiation happens, not here.
+ */
+export interface NightResolution {
+  /** the single seat the pack agreed to kill, or null if the wolves had no target */
+  killTarget: number | null;
   investigate?: { seat: number; target: number; reasoning?: string };
   protect?: { seat: number; target: number; reasoning?: string };
 }
 
 /**
- * Apply a resolved night to the state (mutating): record the wolf channel and
- * the seer/doctor private results, decide the single kill from the wolves'
- * proposals, and carry it out unless the doctor protected that seat.
+ * Apply a resolved night (mutating): record the seer/doctor private results,
+ * then carry out the agreed kill — unless the doctor protected that exact seat.
  */
-export function applyNight(g: GameState, inputs: NightInputs, rng: Rng): void {
-  // 1. wolf night channel — visible to the wolf faction only
-  for (const p of inputs.killProposals) {
-    g.log.push({ type: "wolf_target", round: g.round, seat: p.seat, target: p.target, reasoning: p.reasoning, vis: wolfChannel });
-  }
-
-  // 2. seer investigation — private to the seer; learns alignment, not role
-  if (inputs.investigate) {
-    const { seat, target } = inputs.investigate;
+export function applyNight(g: GameState, res: NightResolution): void {
+  // seer investigation — private to the seer; learns alignment, not role
+  if (res.investigate) {
+    const { seat, target } = res.investigate;
     g.log.push({
       type: "seer_result",
       round: g.round,
@@ -104,30 +103,66 @@ export function applyNight(g: GameState, inputs: NightInputs, rng: Rng): void {
     });
   }
 
-  // 3. doctor protection — private to the doctor
-  if (inputs.protect) {
-    g.log.push({ type: "doctor_protect", round: g.round, seat: inputs.protect.seat, target: inputs.protect.target, reasoning: inputs.protect.reasoning, vis: seatOnly(inputs.protect.seat) });
+  // doctor protection — private to the doctor
+  if (res.protect) {
+    g.log.push({ type: "doctor_protect", round: g.round, seat: res.protect.seat, target: res.protect.target, reasoning: res.protect.reasoning, vis: seatOnly(res.protect.seat) });
   }
 
-  // 4. decide the kill: tally proposals, break ties deterministically
-  const killTarget = chooseKill(inputs.killProposals, rng);
-  if (killTarget === null) {
+  // the agreed kill, unless the doctor shielded that seat
+  if (res.killTarget === null) {
     g.log.push({ type: "no_death", round: g.round, reason: "no_target", vis: PUBLIC });
     return;
   }
-  if (inputs.protect && inputs.protect.target === killTarget) {
+  if (res.protect && res.protect.target === res.killTarget) {
     g.log.push({ type: "no_death", round: g.round, reason: "protected", vis: PUBLIC });
     return;
   }
-  const victim = seatOf(g, killTarget);
+  const victim = seatOf(g, res.killTarget);
   victim.alive = false;
-  g.log.push({ type: "death", round: g.round, seat: killTarget, cause: "kill", role: victim.role, vis: PUBLIC });
+  g.log.push({ type: "death", round: g.round, seat: res.killTarget, cause: "kill", role: victim.role, vis: PUBLIC });
 }
 
-/** Highest-tallied proposal wins; ties broken by Rng. Null if no proposals. */
-function chooseKill(proposals: { target: number }[], rng: Rng): number | null {
-  if (proposals.length === 0) return null;
-  return tallyWinner(proposals.map((p) => p.target), rng);
+/**
+ * Resolve the wolves' final kill from their confirm-votes: plurality wins, and a
+ * tie is broken by the *lead wolf* (the lowest-seated living wolf) — the pack
+ * defers to the alpha rather than to chance, so consensus is deterministic.
+ * Returns null only when there were no votes at all.
+ */
+export function resolveKillVotes(
+  votes: { seat: number; target: number }[],
+  leadSeat: number,
+): number | null {
+  if (votes.length === 0) return null;
+  const counts = new Map<number, number>();
+  for (const v of votes) counts.set(v.target, (counts.get(v.target) ?? 0) + 1);
+  const top = Math.max(...counts.values());
+  const leaders = [...counts.entries()].filter(([, c]) => c === top).map(([t]) => t);
+  if (leaders.length === 1) return leaders[0];
+  // tie → the lead wolf's own pick if it's among the leaders, else the lowest seat
+  const leadPick = votes.find((v) => v.seat === leadSeat)?.target;
+  return leadPick !== undefined && leaders.includes(leadPick) ? leadPick : leaders.sort((a, b) => a - b)[0];
+}
+
+/**
+ * Drop the seat a seer/doctor targeted in the *immediately previous* round from
+ * its legal set — the successive-round no-repeat rule (DESIGN §2 house rule).
+ * Only ever removes last round's target, so the set can't be starved over a
+ * game; and it's guarded — if removing it would leave nothing, the repeat is
+ * allowed rather than deadlocking. Round 1 (no previous night) is untouched.
+ */
+export function withoutPreviousTarget(
+  g: GameState,
+  kind: "seer_result" | "doctor_protect",
+  seat: number,
+  legal: number[],
+): number[] {
+  if (g.round <= 1) return legal;
+  const prev = g.log.find(
+    (e) => e.type === kind && e.round === g.round - 1 && (e as { seat: number }).seat === seat,
+  ) as { target: number } | undefined;
+  if (prev === undefined) return legal;
+  const pruned = legal.filter((n) => n !== prev.target);
+  return pruned.length ? pruned : legal;
 }
 
 // ---- vote resolution ----

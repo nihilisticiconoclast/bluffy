@@ -50,7 +50,7 @@ export type GameEvent =
     vis: Visibility;
   }
   | { type: "vote"; round: number; seat: number; target: number; reasoning?: string; vis: Visibility }
-  | { type: "wolf_target"; round: number; seat: number; target: number; reasoning?: string; vis: Visibility }
+  | { type: "wolf_target"; round: number; seat: number; target: number; stage?: "propose" | "confirm"; reasoning?: string; vis: Visibility }
   | { type: "seer_result"; round: number; seat: number; target: number; alignment: Alignment; vis: Visibility }
   | { type: "doctor_protect"; round: number; seat: number; target: number; reasoning?: string; vis: Visibility }
   | { type: "death"; round: number; seat: number; cause: "kill" | "vote"; role: Role; vis: Visibility }

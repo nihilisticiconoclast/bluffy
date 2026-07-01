@@ -81,6 +81,19 @@ bluffy/
 └── web/index.html         landing page (Tunnel aesthetic, via cuddly-lamp CDN)
 ```
 
+## Night house-rules
+
+Two mechanics beyond the base spec, both deterministic and enforced by the engine:
+
+- **Wolf consensus** — the pack agrees on *one* kill. Each wolf proposes; if they
+  disagree they see each other's picks (wolf channel) and cast a confirm-vote among
+  the proposed targets. Plurality wins; a tie is broken by the lead wolf (lowest
+  living seat). Unanimous nights skip the confirm round.
+- **No-repeat target** — the seer and doctor may not target the seat they targeted
+  the *immediately previous* round (canonical no-consecutive-protect; the seer
+  avoids re-checking). It only ever excludes last round's target, so the legal set
+  can't be starved, and it relaxes if that would leave no legal target.
+
 ## Web aesthetic
 
 The web surface follows the in-house **Tunnel** design system from

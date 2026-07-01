@@ -64,7 +64,7 @@ function printDirectorsCut(g: GameState): void {
         }
         break;
       case "wolf_target":
-        console.log(`  🐺 P${e.seat} → kill P${e.target}${reason(e.reasoning)}`);
+        console.log(`  🐺 P${e.seat} ${e.stage === "confirm" ? "confirms" : "proposes"} kill P${e.target}${reason(e.reasoning)}`);
         break;
       case "seer_result":
         console.log(`  🔮 P${e.seat} investigates P${e.target} → ${e.alignment}`);
