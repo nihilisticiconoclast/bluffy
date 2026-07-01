@@ -214,16 +214,17 @@ export function memoryStore(): Store & { readonly games: GameState[] } {
 
   return {
     games,
-    recordGame(g: GameState): Promise<void> {
+    // async so a rejected validation surfaces as a rejected promise, not a
+    // synchronous throw.
+    async recordGame(g: GameState): Promise<void> {
       requireWinner(g); // reject unfinished games before recording anything
       games.push(g);
       foldGame(agg, g);
       updateElo(elo, g);
-      return Promise.resolve();
     },
-    leaderboard(limit?: number): Promise<LeaderboardRow[]> {
+    async leaderboard(limit?: number): Promise<LeaderboardRow[]> {
       const rows = leaderboardFrom(agg, elo);
-      return Promise.resolve(limit === undefined ? rows : rows.slice(0, limit));
+      return limit === undefined ? rows : rows.slice(0, limit);
     },
   };
 }
