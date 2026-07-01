@@ -106,3 +106,46 @@ function project(view: SeatView, e: GameEvent): void {
     // phase / no_death / violation / game_over carry no per-seat view payload
   }
 }
+
+/**
+ * The spectator's world: strictly the PUBLIC channel — roster, day-chat, votes,
+ * and eliminations (with the role revealed on death). No `self`, no partners, no
+ * seer results, no wolf channel, no private reasoning.
+ *
+ * This is the firewall pointed at the audience: what the live UI streams, and
+ * the only thing a spectator predictor (§9) is allowed to reason from. Pass
+ * `throughRound` to reconstruct the public state as of the end of an earlier
+ * round — that's how calibration is scored round by round.
+ */
+export interface SpectatorView {
+  round: number;
+  phase: Phase;
+  players: PlayerInfo[];
+  dayLog: { round: number; seat: number; text: string }[];
+  votes: { round: number; seat: number; target: number }[];
+  deaths: { round: number; seat: number; role: Role; cause: "kill" | "vote" }[];
+}
+
+export function spectatorView(g: GameState, throughRound = Infinity): SpectatorView {
+  const view: SpectatorView = {
+    round: Math.min(g.round, throughRound === Infinity ? g.round : throughRound),
+    phase: throughRound >= g.round ? g.phase : "day_vote",
+    players: g.seats.map((s) => ({
+      seat: s.seatNo,
+      model: s.model,
+      // as-of-round liveness: alive unless a death at//before throughRound removed them
+      alive: !g.log.some((e) => e.type === "death" && e.seat === s.seatNo && e.round <= throughRound),
+    })),
+    dayLog: [],
+    votes: [],
+    deaths: [],
+  };
+  for (const e of g.log) {
+    if (e.vis.kind !== "public") continue; // spectators see only the public channel
+    if ("round" in e && e.round > throughRound) continue;
+    if (e.type === "speak") view.dayLog.push({ round: e.round, seat: e.seat, text: e.text });
+    else if (e.type === "vote") view.votes.push({ round: e.round, seat: e.seat, target: e.target });
+    else if (e.type === "death") view.deaths.push({ round: e.round, seat: e.seat, role: e.role, cause: e.cause });
+  }
+  return view;
+}

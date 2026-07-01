@@ -13,6 +13,8 @@
 import { newGame, runGame } from "../engine/engine.ts";
 import type { GameEvent, GameState } from "../engine/state.ts";
 import { dummyTable } from "../agents/dummy.ts";
+import { detectionRate, gameOutcomes, lieSuccessRate } from "../engine/stats.ts";
+import { collectPredictions, votePressurePredictor } from "../engine/predict.ts";
 
 const MODELS = [
   "deepseek-r1",
@@ -84,9 +86,31 @@ function printDirectorsCut(g: GameState): void {
 }
 
 const reason = (r?: string) => (r ? `  «${r}»` : "");
+const pct = (x: number) => (Number.isNaN(x) ? "  — " : `${Math.round(x * 100)}%`);
+
+/** Post-game metrics (DESIGN §5) + the Brier calibration hook (§9). */
+function printScorecard(g: GameState): void {
+  console.log("\n\n========== SCORECARD (post-game metrics) ==========");
+  console.log("seat  model            role       won  survived  lie_success  detection");
+  for (const o of gameOutcomes(g)) {
+    const lie = o.alignment === "wolf" ? (o.lieSuccess ? "yes" : "no ") : "  —";
+    const det = o.alignment === "town" ? pct(o.townVotesOnWolf / Math.max(1, o.townVotesCast)) : "  —";
+    console.log(
+      `P${o.seatNo}    ${o.model.padEnd(15)}  ${o.role.padEnd(9)}  ${o.won ? "✓" : " "}    ` +
+        `${o.survived ? "✓" : " "}         ${lie.padEnd(11)}  ${det}`,
+    );
+  }
+
+  // A spectator predicting who the wolves are, scored by Brier as roles reveal.
+  const { rounds, meanBrier } = collectPredictions(g, votePressurePredictor(g.config.roles.werewolf));
+  console.log("\nBrier calibration — vote-pressure predictor (0=perfect, 0.25=coin-flip, 1=worst):");
+  for (const r of rounds) console.log(`  round ${r.round}: Brier ${r.brier.toFixed(3)}`);
+  console.log(`  mean Brier: ${meanBrier.toFixed(3)}`);
+}
 
 const { game, rng } = newGame({ id: `spike-${seed}`, models: MODELS, seed });
 console.log(`bluffy spike — seed ${seed}, ${MODELS.length} players\n(roles are hidden until reveal; flip to the director's cut below)`);
 
 await runGame(game, dummyTable(MODELS.length), rng, { discussionRounds: 1, onEvent: printPublic });
 printDirectorsCut(game);
+printScorecard(game);

@@ -27,6 +27,8 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full spec and build plan.
 
 - [x] **M0** — console spike, dummy agents, 6 players
 - [x] **M1** — deterministic engine + `viewFor` firewall + scripted dummy agent + unit tests (no LLM)
+- [x] **M1+** — engine extras done early, all offline: `spectatorView`, role-conditioned
+  stats (`lie_success`, `detection_rate`, team ELO), and the Brier spectator-prediction hook
 - [ ] **M2** — real models via OpenRouter (+ parse/repair/retry)
 - [ ] **M3** — persistence (Neon) + post-game stats
 - [ ] **M4** — live SSE UI
@@ -66,10 +68,12 @@ bluffy/
 │   ├── roles.ts           roles, alignment, table config
 │   ├── state.ts           game state types + construction + selectors
 │   ├── contract.ts        the agent I/O contract (Action / ActionRequest / Agent)
-│   ├── view.ts            viewFor(game, seat) — the information firewall
+│   ├── view.ts            viewFor(game, seat) firewall + spectatorView (public-only)
 │   ├── resolve.ts         validation + night/vote resolution + win check
 │   ├── engine.ts          the authoritative orchestrator (the round loop)
-│   └── engine.test.ts     unit tests (firewall, illegal actions, win conditions)
+│   ├── stats.ts           role-conditioned metrics: lie_success, detection_rate, ELO
+│   ├── predict.ts         Brier spectator wolf-prediction (§9)
+│   └── *.test.ts          unit tests (firewall, illegal actions, win, stats, Brier)
 ├── agents/
 │   └── dummy.ts           scripted, view-only agent for M1 (no LLM)
 ├── src/spike.ts           console runner (M0/M1)
