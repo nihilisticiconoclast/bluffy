@@ -2,7 +2,8 @@ name: Live game
 
 # Plays one real game with LLM players via OpenRouter, using the repository
 # secret OPENROUTER_API_KEY. Manual trigger so it never runs (or spends quota)
-# on its own.
+# on its own. If the DATABASE_URL secret is set, the finished game is persisted
+# to Neon and the leaderboard is printed (M3).
 #
 # Pass seed=probe to instead run the read-only slug probe (src/probe.ts), which
 # verifies every model slug in agents/models.ts against the live API.
@@ -22,6 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install dependencies (Neon driver for persistence)
+        run: npm install
       - name: Verify model slugs (probe)
         if: ${{ github.event.inputs.seed == 'probe' }}
         env:
@@ -31,4 +34,5 @@ jobs:
         if: ${{ github.event.inputs.seed != 'probe' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node src/live.ts ${{ github.event.inputs.seed }}

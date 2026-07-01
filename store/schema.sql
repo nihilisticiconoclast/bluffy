@@ -2,7 +2,7 @@
 --
 -- Apply once against your Neon database:
 --   psql "$DATABASE_URL" -f store/schema.sql
--- Everything is `if not exists`, so re-applying is safe.
+-- Everything is `if not exists` / `or replace`, so re-applying is safe.
 
 -- One finished game.
 create table if not exists games (
@@ -65,7 +65,7 @@ create table if not exists model_elo (
   games integer not null default 0
 );
 
--- The leaderboard: overall record + ELO per model, plus the two skill metrics
+-- The leaderboard: overall record + ELO per model, plus the skill metrics
 -- (lie_success is wolf-only; detection is town-only), joined from model_stats.
 create or replace view leaderboard as
 select
@@ -74,6 +74,7 @@ select
   sum(s.games)                                              as games,
   sum(s.wins)                                               as wins,
   sum(s.wins)::float / nullif(sum(s.games), 0)              as win_rate,
+  sum(s.survivals)::float / nullif(sum(s.games), 0)         as survival_rate,
   sum(s.lie_successes) filter (where s.role = 'werewolf')::float
     / nullif(sum(s.games) filter (where s.role = 'werewolf'), 0) as lie_success_rate,
   sum(s.town_votes_on_wolf)::float

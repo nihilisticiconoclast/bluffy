@@ -1,11 +1,15 @@
 /**
- * Live game runner (M2): play one real game with LLM players via OpenRouter,
- * streaming the public transcript, then the director's cut + scorecard.
+ * Live game runner (M2 + M3): play one real game with LLM players via
+ * OpenRouter, stream the public transcript, print the scorecard + robustness
+ * audit, then — if a database is configured — persist the game and show the
+ * leaderboard.
  *
  * Reads the key from OPENROUTER_API_KEY. If it's absent this exits cleanly with
  * instructions rather than failing — the offline `npm run spike` needs no key.
+ * Persistence is gated on DATABASE_URL: unset means the runner behaves exactly
+ * as before (no database touched).
  *
- *   OPENROUTER_API_KEY=sk-or-... node src/live.ts [seed]
+ *   OPENROUTER_API_KEY=sk-or-... [DATABASE_URL=postgres://...] node src/live.ts [seed]
  */
 
 import { newGame, runGame } from "../engine/engine.ts";
@@ -15,6 +19,7 @@ import { BACKUP_MODELS, DEFAULT_CAST, EXTRA_CAST, shortName } from "../agents/mo
 import { memoryTokenBucket } from "../agents/ratelimit.ts";
 import type { AgentTable } from "../engine/contract.ts";
 import { gameOutcomes } from "../engine/stats.ts";
+import { neonExecutor, sqlStore } from "../store/sql.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
@@ -143,3 +148,26 @@ for (const [model, t] of byModel) {
   console.log(`  ${shortName(model).padEnd(30)} ok:${String(t.ok).padStart(3)}   errors: ${errs}`);
 }
 console.log("reading it: any 'HTTP 404' = a bad/renamed slug to fix; 'HTTP 429' = valid slug, just rate-limited.");
+
+// M3: persist the finished game + refresh the leaderboard, if a DB is set. Gated
+// on DATABASE_URL exactly like the API key — unset means nothing is persisted.
+const dbUrl = process.env.DATABASE_URL;
+if (dbUrl) {
+  try {
+    const store = sqlStore(await neonExecutor(dbUrl));
+    await store.recordGame(game);
+    const board = await store.leaderboard(10);
+    console.log("\n\n========== LEADERBOARD (top 10 by ELO) ==========");
+    console.log("elo   model                    games  win   lie   detect");
+    for (const r of board) {
+      const pct = (x: number | null) => (x === null ? "  — " : `${Math.round(x * 100)}%`.padStart(4));
+      console.log(
+        `${Math.round(r.elo).toString().padStart(4)}  ${shortName(r.model).padEnd(24)} ${String(r.games).padStart(4)}  ${pct(r.winRate)}  ${pct(r.lieSuccessRate)}  ${pct(r.detectionRate)}`,
+      );
+    }
+  } catch (e) {
+    console.error(`\npersistence skipped: ${e instanceof Error ? e.message : String(e)}`);
+  }
+} else {
+  console.log("\n(DATABASE_URL not set — game not persisted. Set it + apply store/schema.sql to record games.)");
+}

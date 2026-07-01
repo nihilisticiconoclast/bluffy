@@ -12,5 +12,8 @@
     "spike": "node src/spike.ts",
     "live": "node src/live.ts",
     "probe": "node src/probe.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.0"
   }
 }
