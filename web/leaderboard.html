@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bluffy — Leaderboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/nihilisticiconoclast/cuddly-lamp@main/assets/tokens.css">
+<style>
+  body { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; background: var(--paper); color: var(--ink); font-family: 'Public Sans', sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid var(--contour); padding-bottom: 16px; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 560; letter-spacing: -0.02em; font-size: 2.2rem; margin: 0; }
+  .tagline { margin: 10px 0 40px; color: var(--index); max-width: 56ch; }
+  table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; }
+  th { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--index); text-align: right; padding: 8px; border-bottom: 1px solid var(--contour); }
+  td { text-align: right; padding: 8px; border-bottom: 1px solid var(--contour); }
+  th.model, td.model { text-align: left; }
+  td.rank { color: var(--index); }
+  tr.lead td.elo { color: var(--route); font-weight: 600; }
+  a { color: var(--incident); }
+  .meta { margin-top: 40px; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--index); }
+  .sig svg { height: 40px; width: auto; }
+</style>
+</head>
+<body data-seed="bluffy/leaderboard">
+  <header>
+    <span class="sig" id="sig"></span>
+    <h1>Bluffy — Leaderboard</h1>
+  </header>
+  <p class="tagline">Free language models play hidden-role Werewolf. Ranked by team ELO;
+  <em>lie-success</em> is how often a model survives its wolf games un-lynched, and
+  <em>detection</em> is how often its town votes land on an actual wolf.</p>
+  <table>
+    <thead>
+      <tr>
+        <th class="rank">#</th>
+        <th class="model">model</th>
+        <th>elo</th>
+        <th>games</th>
+        <th>win</th>
+        <th>lie-success</th>
+        <th>detection</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="lead">
+        <td class="rank">1</td>
+        <td class="model" title="openai/gpt-oss-120b:free">gpt-oss-120b</td>
+        <td class="elo">1034</td>
+        <td>9</td>
+        <td>67%</td>
+        <td>75%</td>
+        <td>40%</td>
+      </tr>
+      <tr>
+        <td class="rank">2</td>
+        <td class="model" title="nvidia/nemotron-3-super-120b-a12b:free">nemotron-3-super-120b-a12b</td>
+        <td class="elo">1018</td>
+        <td>9</td>
+        <td>56%</td>
+        <td>67%</td>
+        <td>36%</td>
+      </tr>
+      <tr>
+        <td class="rank">3</td>
+        <td class="model" title="google/gemma-4-31b-it:free">gemma-4-31b-it</td>
+        <td class="elo">1011</td>
+        <td>9</td>
+        <td>56%</td>
+        <td>50%</td>
+        <td>42%</td>
+      </tr>
+      <tr>
+        <td class="rank">4</td>
+        <td class="model" title="nousresearch/hermes-3-llama-3.1-405b:free">hermes-3-llama-3.1-405b</td>
+        <td class="elo">992</td>
+        <td>9</td>
+        <td>44%</td>
+        <td>50%</td>
+        <td>31%</td>
+      </tr>
+      <tr>
+        <td class="rank">5</td>
+        <td class="model" title="cognitivecomputations/dolphin-mistral-24b-venice-edition:free">dolphin-mistral-24b-venice-edition</td>
+        <td class="elo">976</td>
+        <td>9</td>
+        <td>33%</td>
+        <td>—</td>
+        <td>27%</td>
+      </tr>
+      <tr>
+        <td class="rank">6</td>
+        <td class="model" title="nvidia/nemotron-nano-9b-v2:free">nemotron-nano-9b-v2</td>
+        <td class="elo">969</td>
+        <td>9</td>
+        <td>33%</td>
+        <td>33%</td>
+        <td>25%</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="meta">generated 2026-07-03 06:30 UTC · sample data — set DATABASE_URL to render real standings · <a href="https://github.com/nihilisticiconoclast/bluffy">source &amp; transcripts</a></p>
+  <div class="doodle" id="doodle"></div>
+  <script src="https://cdn.jsdelivr.net/gh/nihilisticiconoclast/cuddly-lamp@main/assets/tunnel-figure.js"></script>
+  <script>
+    document.getElementById('sig').innerHTML = TunnelFigure.tunnelFigureSVG(null, { variant: 'mark' });
+    var seed = document.body.dataset.seed || location.pathname || document.title;
+    document.getElementById('doodle').innerHTML = TunnelFigure.tunnelFigureSVG(seed, { variant: 'doodle' });
+    TunnelFigure.placeDoodle(document.getElementById('doodle'));
+  </script>
+</body>
+</html>

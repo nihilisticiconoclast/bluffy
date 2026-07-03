@@ -11,7 +11,9 @@
     "test": "node --test \"engine/**/*.test.ts\" \"agents/**/*.test.ts\" \"store/**/*.test.ts\"",
     "spike": "node src/spike.ts",
     "live": "node src/live.ts",
-    "probe": "node src/probe.ts"
+    "probe": "node src/probe.ts",
+    "leaderboard": "node src/leaderboard-page.ts",
+    "leaderboard:demo": "node src/leaderboard-page.ts --demo"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0"
