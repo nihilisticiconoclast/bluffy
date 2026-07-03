@@ -116,10 +116,17 @@ export function sqlStore(exec: SqlExecutor): Store {
  * Build a `SqlExecutor` against a Neon database. The driver is imported lazily so
  * nothing else in the codebase depends on it; only a real persisted run needs
  * `@neondatabase/serverless` installed (see live-game.yml).
+ *
+ * Driver-shape note: in 0.10.x the client returned by `neon()` is invoked
+ * directly as `sql(query, params)`; later majors moved that to `sql.query()`.
+ * Support both so a driver bump can't silently break persistence again.
  */
 export async function neonExecutor(connectionString: string): Promise<SqlExecutor> {
   const { neon } = await import("@neondatabase/serverless");
-  const sql = neon(connectionString);
-  return (query: string, params: readonly unknown[] = []) =>
-    sql.query(query, params as unknown[]) as Promise<SqlRow[]>;
+  // deno-lint-ignore no-explicit-any
+  const sql = neon(connectionString) as any;
+  const run = typeof sql.query === "function"
+    ? (q: string, p: unknown[]) => sql.query(q, p)
+    : (q: string, p: unknown[]) => sql(q, p);
+  return (query: string, params: readonly unknown[] = []) => run(query, [...params]) as Promise<SqlRow[]>;
 }
