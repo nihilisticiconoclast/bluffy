@@ -1,7 +1,7 @@
 /**
  * Offline tests for the LLM agent: every resilience path (clean parse, repair
- * retry, model failover, safe fallback) exercised with a mock transport — no
- * network, no key.
+ * retry, same-model transient retry, model failover, safe fallback) exercised
+ * with a mock transport — no network, no key.
  */
 
 import { test } from "node:test";
@@ -129,15 +129,41 @@ test("transport error on primary fails over to a backup model", async () => {
   assert.equal(traces[0].fellBack, false);
 });
 
-test("HTTP 429 is treated as an error and triggers failover", async () => {
+test("a transient 429 retries the same model before failing over", async () => {
+  const traces: LlmTrace[] = [];
   const agent = makeLlmAgent({
     model: "primary",
     apiKey: "test",
     backups: ["backup"],
     backoffMs: 0,
+    retryBackoffMs: 0,
     transport: scriptTransport([{ httpError: 429 }, { content: '{"action":"vote","target":1}' }]),
+    onTrace: (t) => traces.push(t),
   });
-  assert.equal((await agent(fakeView(), voteReq)).target, 1);
+  const action = await agent(fakeView(), voteReq);
+  assert.equal(action.action === "vote" && action.target, 1);
+  assert.equal(traces[0].model, "primary"); // stayed on its own model
+  assert.equal(traces[0].failedOver, false);
+  assert.equal(traces[0].attempts, 2); // 429, then success
+});
+
+test("429s beyond the retry budget fail over to a backup", async () => {
+  const traces: LlmTrace[] = [];
+  const agent = makeLlmAgent({
+    model: "primary",
+    apiKey: "test",
+    backups: ["backup"],
+    backoffMs: 0,
+    retryBackoffMs: 0,
+    maxSameModelRetries: 2,
+    transport: scriptTransport([{ httpError: 429 }, { httpError: 429 }, { httpError: 429 }, { content: '{"action":"vote","target":2}' }]),
+    onTrace: (t) => traces.push(t),
+  });
+  const action = await agent(fakeView(), voteReq);
+  assert.equal(action.action === "vote" && action.target, 2);
+  assert.equal(traces[0].model, "backup");
+  assert.equal(traces[0].failedOver, true);
+  assert.equal(traces[0].fellBack, false);
 });
 
 test("a full game runs on LLM agents driven by a legal mock model", async () => {
