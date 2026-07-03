@@ -1,12 +1,15 @@
 name: Live game
 
 # Plays one real game with LLM players via OpenRouter, using the repository
-# secret OPENROUTER_API_KEY. Manual trigger so it never runs (or spends quota)
-# on its own. If the DATABASE_URL secret is set, the finished game is persisted
-# to Neon and the leaderboard is printed (M3).
+# secret OPENROUTER_API_KEY. If the DATABASE_URL secret is set, the finished
+# game is persisted to Neon and the leaderboard is printed (M3).
 #
-# Pass seed=probe to instead run the read-only slug probe (src/probe.ts), which
-# verifies every model slug in agents/models.ts against the live API.
+# Triggers:
+#   • manual dispatch — runs always; pass seed=probe to run the read-only slug
+#     probe (src/probe.ts) instead of playing a game.
+#   • schedule (3×/day) — accumulates leaderboard data. Skips early while
+#     DATABASE_URL is unset, so no quota is spent on games that wouldn't be
+#     recorded. (GitHub only fires cron from the default branch.)
 on:
   workflow_dispatch:
     inputs:
@@ -14,6 +17,8 @@ on:
         description: "Game seed (blank = random; 'probe' = verify model slugs instead of playing)"
         required: false
         default: ""
+  schedule:
+    - cron: "17 9,15,21 * * *"
 
 jobs:
   play:
@@ -35,4 +40,10 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: node src/live.ts ${{ github.event.inputs.seed }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -z "$DATABASE_URL" ]; then
+            echo "Scheduled game skipped: DATABASE_URL is not set, so the game would not be recorded."
+            echo "Add the secret (and apply store/schema.sql to Neon) to start accumulating games."
+            exit 0
+          fi
+          node src/live.ts ${{ github.event.inputs.seed }}
