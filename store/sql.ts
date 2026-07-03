@@ -7,15 +7,16 @@
  * executor, and the only piece that touches the network is `neonExecutor`,
  * which *dynamically* imports the Neon driver so tests/CI never load it.
  *
- * Persistence is a sequence of single statements (Neon HTTP is one query per
- * call); it is idempotent on re-record for games/seats via ON CONFLICT, and the
- * running totals (model_stats, model_elo) are upserted additively.
+ * Neon HTTP runs one statement per call (no transaction), so idempotency is
+ * enforced up front: if the game id is already recorded, recordGame is a no-op
+ * — otherwise a replay would duplicate actions and double-count the running
+ * totals (model_stats, model_elo), which are upserted additively.
  */
 
 import type { GameState } from "../engine/state.ts";
 import { aggregate, DEFAULT_ELO, updateElo } from "../engine/stats.ts";
 import type { EloTable } from "../engine/stats.ts";
-import { actionRows, gameRow, type LeaderboardRow, seatRows, type Store } from "./store.ts";
+import { actionRows, gameRow, type LeaderboardRow, type RecordOpts, seatRows, type Store } from "./store.ts";
 
 export type SqlRow = Record<string, unknown>;
 
@@ -28,22 +29,26 @@ const numOrNull = (v: unknown): number | null => (v === null || v === undefined 
 /** A `Store` backed by any Postgres reachable through `exec`. */
 export function sqlStore(exec: SqlExecutor): Store {
   return {
-    async recordGame(g: GameState): Promise<void> {
-      const gr = gameRow(g); // throws on an unfinished game, before any write
+    async recordGame(g: GameState, opts?: RecordOpts): Promise<void> {
+      const gr = gameRow(g, opts?.startedAt); // throws on an unfinished game, before any write
+
+      // Idempotency gate: a replayed game id writes nothing.
+      const already = await exec(`select 1 from games where id = $1`, [gr.id]);
+      if (already.length > 0) return;
 
       await exec(
-        `insert into games (id, winner, players, rounds, config_json, ended_at)
-         values ($1, $2, $3, $4, $5::jsonb, now())
+        `insert into games (id, winner, players, rounds, config_json, started_at, ended_at)
+         values ($1, $2, $3, $4, $5::jsonb, $6, now())
          on conflict (id) do nothing`,
-        [gr.id, gr.winner, gr.players, gr.rounds, gr.config_json],
+        [gr.id, gr.winner, gr.players, gr.rounds, gr.config_json, gr.started_at],
       );
 
-      for (const r of seatRows(g)) {
+      for (const r of seatRows(g, opts?.voices ?? [])) {
         await exec(
-          `insert into seats (game_id, seat_no, model, role, alignment, survived, won, voted_out, lie_success)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `insert into seats (game_id, seat_no, model, role, alignment, survived, won, voted_out, lie_success, calls, self_calls, voiced_json)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
            on conflict (game_id, seat_no) do nothing`,
-          [r.game_id, r.seat_no, r.model, r.role, r.alignment, r.survived, r.won, r.voted_out, r.lie_success],
+          [r.game_id, r.seat_no, r.model, r.role, r.alignment, r.survived, r.won, r.voted_out, r.lie_success, r.calls, r.self_calls, r.voiced_json],
         );
       }
 

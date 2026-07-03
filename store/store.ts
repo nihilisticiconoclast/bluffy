@@ -6,7 +6,7 @@
  *   • the GameState → rows mapping is a set of PURE functions (no I/O), unit
  *     tested offline exactly like the engine;
  *   • the backend sits behind a `Store` interface. The in-memory store here is
- *     the default for tests/offline; the real Neon-backed store will implement
+ *     the default for tests/offline; the Neon-backed store (sql.ts) implements
  *     the same interface via an injected SQL executor (the same trick as
  *     OpenRouter's `Transport`), so no database is ever touched in a test.
  *
@@ -24,6 +24,28 @@ import {
 } from "../engine/stats.ts";
 import type { Aggregate, EloTable, ModelRoleStat } from "../engine/stats.ts";
 
+// ---- voice attribution ----------------------------------------------------
+
+/**
+ * Which model actually produced one of a seat's actions (from the live
+ * runner's LlmTrace). Under free-tier rate limits a backup can voice a seat;
+ * the leaderboard has to know when that happened (DESIGN §8: "record the
+ * substitution"), or the assigned model gets credit for a backup's play.
+ */
+export interface Voice {
+  seat: number;
+  /** the model that produced the accepted action (assigned or backup) */
+  model: string;
+  /** true when no model produced it and the safe fallback played instead */
+  fellBack?: boolean;
+}
+
+export interface RecordOpts {
+  /** per-call voice attribution, straight from the live runner's traces */
+  voices?: Voice[];
+  startedAt?: Date;
+}
+
 // ---- row shapes (one per table in schema.sql) ----------------------------
 
 export interface GameRow {
@@ -32,6 +54,8 @@ export interface GameRow {
   players: number;
   rounds: number;
   config_json: string;
+  /** ISO timestamp, or null when the caller didn't track it */
+  started_at: string | null;
 }
 
 export interface SeatRow {
@@ -44,6 +68,12 @@ export interface SeatRow {
   won: boolean;
   voted_out: boolean;
   lie_success: boolean;
+  /** model calls this seat made over the game */
+  calls: number;
+  /** of those, how many its own assigned model answered */
+  self_calls: number;
+  /** JSON object: {"model-or-(fallback)": count} — who actually voiced the seat */
+  voiced_json: string;
 }
 
 export interface ActionRow {
@@ -65,29 +95,44 @@ function requireWinner(g: GameState): Winner {
   return g.winner;
 }
 
-export function gameRow(g: GameState): GameRow {
+export function gameRow(g: GameState, startedAt?: Date): GameRow {
   return {
     id: g.id,
     winner: requireWinner(g),
     players: g.config.players,
     rounds: g.round,
     config_json: JSON.stringify(g.config.roles),
+    started_at: startedAt ? startedAt.toISOString() : null,
   };
 }
 
-/** One row per seat, with its outcome from the shared stats layer. */
-export function seatRows(g: GameState): SeatRow[] {
-  return gameOutcomes(g).map((o) => ({
-    game_id: g.id,
-    seat_no: o.seatNo,
-    model: o.model,
-    role: o.role,
-    alignment: o.alignment,
-    survived: o.survived,
-    won: o.won,
-    voted_out: o.votedOut,
-    lie_success: o.lieSuccess,
-  }));
+/** One row per seat, with its outcome from the shared stats layer and — when
+ * traces are provided — the voice-attribution tallies. */
+export function seatRows(g: GameState, voices: Voice[] = []): SeatRow[] {
+  return gameOutcomes(g).map((o) => {
+    const mine = voices.filter((v) => v.seat === o.seatNo);
+    const voiced: Record<string, number> = {};
+    let selfCalls = 0;
+    for (const v of mine) {
+      const label = v.fellBack ? "(fallback)" : v.model;
+      voiced[label] = (voiced[label] ?? 0) + 1;
+      if (!v.fellBack && v.model === o.model) selfCalls++;
+    }
+    return {
+      game_id: g.id,
+      seat_no: o.seatNo,
+      model: o.model,
+      role: o.role,
+      alignment: o.alignment,
+      survived: o.survived,
+      won: o.won,
+      voted_out: o.votedOut,
+      lie_success: o.lieSuccess,
+      calls: mine.length,
+      self_calls: selfCalls,
+      voiced_json: JSON.stringify(voiced),
+    };
+  });
 }
 
 const action = (
@@ -199,8 +244,9 @@ export function leaderboardFrom(agg: Aggregate, elo: EloTable): LeaderboardRow[]
 // ---- the Store interface + an in-memory implementation -------------------
 
 export interface Store {
-  /** Persist a finished game and fold its stats into the leaderboard. */
-  recordGame(g: GameState): Promise<void>;
+  /** Persist a finished game and fold its stats into the leaderboard.
+   * Idempotent: recording the same game id twice is a no-op. */
+  recordGame(g: GameState, opts?: RecordOpts): Promise<void>;
   /** The current leaderboard, ranked (highest ELO first). */
   leaderboard(limit?: number): Promise<LeaderboardRow[]>;
 }
@@ -216,8 +262,9 @@ export function memoryStore(): Store & { readonly games: GameState[] } {
     games,
     // async so a rejected validation surfaces as a rejected promise, not a
     // synchronous throw.
-    async recordGame(g: GameState): Promise<void> {
+    async recordGame(g: GameState, _opts?: RecordOpts): Promise<void> {
       requireWinner(g); // reject unfinished games before recording anything
+      if (games.some((x) => x.id === g.id)) return; // idempotent, like the SQL store
       games.push(g);
       foldGame(agg, g);
       updateElo(elo, g);

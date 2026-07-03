@@ -11,6 +11,7 @@ import { newGame, runGame } from "../engine/engine.ts";
 import type { GameState } from "../engine/state.ts";
 import { dummyTable } from "../agents/dummy.ts";
 import { sqlStore, type SqlExecutor, type SqlRow } from "./sql.ts";
+import type { Voice } from "./store.ts";
 
 const MODELS = ["m0", "m1", "m2", "m3", "m4", "m5"];
 
@@ -25,13 +26,14 @@ interface Call {
   params: unknown[];
 }
 
-/** A fake executor: records calls, returns canned rows for the two SELECTs. */
-function recordingExec(leaderboardRows: SqlRow[] = []): { exec: SqlExecutor; calls: Call[] } {
+/** A fake executor: records calls, returns canned rows for the SELECTs. */
+function recordingExec(opts: { gameExists?: boolean; leaderboardRows?: SqlRow[] } = {}): { exec: SqlExecutor; calls: Call[] } {
   const calls: Call[] = [];
   const exec: SqlExecutor = (sql, params = []) => {
     calls.push({ sql, params: [...params] });
+    if (/select 1 from games/i.test(sql)) return Promise.resolve(opts.gameExists ? [{ "?column?": 1 }] : []);
     if (/from model_elo where model in/i.test(sql)) return Promise.resolve([]); // no prior ELO
-    if (/from leaderboard/i.test(sql)) return Promise.resolve(leaderboardRows);
+    if (/from leaderboard/i.test(sql)) return Promise.resolve(opts.leaderboardRows ?? []);
     return Promise.resolve([]);
   };
   return { exec, calls };
@@ -42,7 +44,8 @@ const startsWith = (calls: Call[], re: RegExp) => calls.filter((c) => re.test(c.
 test("recordGame emits games → seats → actions → stats → elo", async () => {
   const g = await playGame(1);
   const { exec, calls } = recordingExec();
-  await sqlStore(exec).recordGame(g);
+  const voices: Voice[] = [{ seat: 0, model: "m0" }, { seat: 0, model: "other" }];
+  await sqlStore(exec).recordGame(g, { voices, startedAt: new Date("2026-07-01T12:00:00Z") });
 
   const gameInserts = startsWith(calls, /^insert into games/i);
   const seatInserts = startsWith(calls, /^insert into seats/i);
@@ -52,7 +55,12 @@ test("recordGame emits games → seats → actions → stats → elo", async () 
 
   assert.equal(gameInserts.length, 1);
   assert.equal(gameInserts[0].params[0], g.id); // id is $1
+  assert.equal(gameInserts[0].params[5], "2026-07-01T12:00:00.000Z"); // started_at is $6
   assert.equal(seatInserts.length, 6); // one per seat
+  // voice tallies ride along on the seat rows ($10=calls, $11=self_calls, $12=voiced_json)
+  assert.equal(seatInserts[0].params[9], 2);
+  assert.equal(seatInserts[0].params[10], 1);
+  assert.deepEqual(JSON.parse(String(seatInserts[0].params[11])), { "m0": 1, "other": 1 });
   assert.ok(actionInserts.length > 0);
   assert.ok(statUpserts.length > 0);
   assert.equal(eloUpserts.length, 6); // one per distinct model
@@ -64,8 +72,17 @@ test("recordGame emits games → seats → actions → stats → elo", async () 
   assert.ok(idxGame < idxSeat && idxSeat < idxAction);
 });
 
-test("recordGame reads current ELO before writing it back", async () => {
+test("a replayed game id writes nothing (idempotency gate)", async () => {
   const g = await playGame(2);
+  const { exec, calls } = recordingExec({ gameExists: true });
+  await sqlStore(exec).recordGame(g);
+
+  assert.equal(calls.length, 1); // just the existence check
+  assert.match(calls[0].sql, /select 1 from games/i);
+});
+
+test("recordGame reads current ELO before writing it back", async () => {
+  const g = await playGame(3);
   const { exec, calls } = recordingExec();
   await sqlStore(exec).recordGame(g);
 
@@ -79,7 +96,7 @@ test("leaderboard maps + coerces view rows", async () => {
     { model: "m0", elo: "1024", games: "3", wins: "2", win_rate: "0.6667", survival_rate: "0.5", lie_success_rate: null, detection_rate: "0.75" },
     { model: "m1", elo: 980, games: 3, wins: 1, win_rate: 0.3333, survival_rate: 0.5, lie_success_rate: 0.5, detection_rate: null },
   ];
-  const { exec } = recordingExec(rows);
+  const { exec } = recordingExec({ leaderboardRows: rows });
   const board = await sqlStore(exec).leaderboard(10);
 
   assert.equal(board.length, 2);

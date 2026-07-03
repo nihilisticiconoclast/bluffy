@@ -16,6 +16,9 @@ create table if not exists games (
 );
 
 -- One row per seat, with its ground-truth role and outcome (revealed post-game).
+-- calls/self_calls/voiced_json record who actually produced the seat's actions:
+-- under free-tier rate limits a backup model can voice a seat (DESIGN §8
+-- "record the substitution"), and the leaderboard must know when that happened.
 create table if not exists seats (
   game_id     text not null references games (id) on delete cascade,
   seat_no     integer not null,
@@ -26,6 +29,9 @@ create table if not exists seats (
   won         boolean not null,
   voted_out   boolean not null,
   lie_success boolean not null,
+  calls       integer not null default 0,
+  self_calls  integer not null default 0,
+  voiced_json jsonb not null default '{}',
   primary key (game_id, seat_no)
 );
 create index if not exists seats_model_idx on seats (model);

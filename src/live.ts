@@ -37,6 +37,10 @@ if (!apiKey) {
 }
 
 const seed = Number(process.argv[2] ?? Date.now() % 100000);
+// Unique per run: re-running a seed is a NEW game (models are nondeterministic),
+// not a replay — and the store's idempotency gate keys on this id.
+const gameId = `live-${seed}-${Date.now().toString(36)}`;
+const startedAt = new Date();
 const models = DEFAULT_CAST;
 const name = (g: GameState, seat: number) => `P${seat}·${shortName(g.seats[seat].model)}`;
 
@@ -97,7 +101,7 @@ for (let s = 0; s < models.length; s++) {
 }
 
 console.log(`bluffy LIVE — seed ${seed}, models: ${models.map(shortName).join(", ")}`);
-const { game, rng } = newGame({ id: `live-${seed}`, models, seed });
+const { game, rng } = newGame({ id: gameId, models, seed });
 await runGame(game, agents, rng, { discussionRounds: 1, onEvent });
 
 // scorecard
@@ -155,7 +159,12 @@ const dbUrl = process.env.DATABASE_URL;
 if (dbUrl) {
   try {
     const store = sqlStore(await neonExecutor(dbUrl));
-    await store.recordGame(game);
+    await store.recordGame(game, {
+      startedAt,
+      // who actually voiced each seat — the leaderboard must know when a
+      // backup (or the fallback) played instead of the assigned model.
+      voices: traces.map((t) => ({ seat: t.seat, model: t.model, fellBack: t.fellBack })),
+    });
     const board = await store.leaderboard(10);
     console.log("\n\n========== LEADERBOARD (top 10 by ELO) ==========");
     console.log("elo   model                    games  win   lie   detect");
