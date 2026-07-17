@@ -34,6 +34,9 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the full spec and build plan.
   testable offline via an injectable transport
 - [x] **M2+** — the cast verified against OpenRouter's *live* model list (`npm run probe`),
   per-model audit on every live run, same-model 429 retries, per-seat backups
+- [x] **M2++** — pre-game cast self-check: every live run pings the seated slugs,
+  re-casts dead ones (404) from the reserve, and reports new `:free` models it
+  isn't using yet (`agents/cast.ts`) — no more silently broken seats
 - [x] **M3** — persistence (Neon): schema, `Store` (in-memory + SQL via injected executor),
   voice-attributed seats, leaderboard view. *Recording switches on once the
   `DATABASE_URL` secret is set and `store/schema.sql` has been applied.*

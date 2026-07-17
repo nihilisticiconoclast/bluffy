@@ -16,6 +16,7 @@ import { newGame, runGame } from "../engine/engine.ts";
 import type { GameEvent, GameState } from "../engine/state.ts";
 import { makeLlmAgent, type LlmTrace } from "../agents/llm.ts";
 import { BACKUP_MODELS, DEFAULT_CAST, EXTRA_CAST, shortName } from "../agents/models.ts";
+import { verifyCast } from "../agents/cast.ts";
 import { memoryTokenBucket } from "../agents/ratelimit.ts";
 import type { AgentTable } from "../engine/contract.ts";
 import { gameOutcomes } from "../engine/stats.ts";
@@ -41,7 +42,6 @@ const seed = Number(process.argv[2] ?? Date.now() % 100000);
 // not a replay — and the store's idempotency gate keys on this id.
 const gameId = `live-${seed}-${Date.now().toString(36)}`;
 const startedAt = new Date();
-const models = DEFAULT_CAST;
 const name = (g: GameState, seat: number) => `P${seat}·${shortName(g.seats[seat].model)}`;
 
 // Hard-coded per-model rate limit. OpenRouter's free tier allows ~20 requests
@@ -50,10 +50,26 @@ const name = (g: GameState, seat: number) => `P${seat}·${shortName(g.seats[seat
 const FREE_TIER_RPM = 18;
 const limiter = memoryTokenBucket({ capacity: 1, refillPerSec: FREE_TIER_RPM / 60 });
 
+// Verify the cast against the live API before seating it: dead slugs (404) are
+// re-cast from the reserve for THIS run, and the log says when models.ts is
+// stale. The pings go through the same limiter as game calls, so they can't
+// trip a model's rate limit.
+const check = await verifyCast({
+  apiKey,
+  cast: DEFAULT_CAST,
+  reserve: EXTRA_CAST,
+  known: [...DEFAULT_CAST, ...EXTRA_CAST, ...BACKUP_MODELS],
+  limiter,
+  log: (line) => console.log(line),
+});
+const models = check.cast;
+
 // Each seat's failover chain: its OWN distinct reserve model first (so failovers
 // scatter across different models and spread rate-limit load), then the shared
-// last-resort net. EXTRA_CAST has ≥ cast-size entries, so the picks are unique.
-const backupsForSeat = (s: number): string[] => [EXTRA_CAST[s % EXTRA_CAST.length], ...BACKUP_MODELS];
+// last-resort net. The healed reserve normally has ≥ cast-size entries so the
+// picks are unique; if healing shrank it, the modulo just reuses reserves.
+const backupsForSeat = (s: number): string[] =>
+  check.reserve.length > 0 ? [check.reserve[s % check.reserve.length], ...BACKUP_MODELS] : [...BACKUP_MODELS];
 
 function onEvent(e: GameEvent, g: GameState): void {
   switch (e.type) {
